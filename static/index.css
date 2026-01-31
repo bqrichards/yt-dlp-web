@@ -1,0 +1,80 @@
+body {
+  font-family: Arial, sans-serif;
+  background-color: black;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100dvh;
+  margin: 0;
+  padding: 1rem;
+}
+
+.container {
+  text-align: center;
+  width: 100%;
+  max-width: 500px;
+}
+
+.text {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #e3e3e3;
+  margin-bottom: 1.5rem;
+  word-wrap: break-word;
+}
+
+input[type="url"] {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 1.1rem;
+  border: 2px solid #dcdde1;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+input[type="url"]:focus {
+  border-color: #0097e6;
+}
+
+button {
+  margin-top: 1rem;
+  padding: 14px 24px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  background-color: #0097e6;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+button:hover {
+  background-color: #007bbd;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+  .text {
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+  }
+
+  input[type="url"] {
+    font-size: 1rem;
+    padding: 12px;
+  }
+
+  button {
+    font-size: 1rem;
+    padding: 12px;
+  }
+}

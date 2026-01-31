@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>yt-dlp webui</title>
+        <link rel="stylesheet" href="index.css" />
+    </head>
+
+    <body>
+        <div class="container">
+            <div>
+                <span class="text">yt-dlp webui</span>
+            </div>
+            <form id="downloadForm">
+                <div>
+                    <input
+                        type="url"
+                        placeholder="Paste URL here..."
+                        id="urlInput"
+                        required
+                    />
+                </div>
+                <div>
+                    <button type="submit">Download</button>
+                </div>
+            </form>
+        </div>
+        <script>
+            // Load query param "url" into url input
+            const params = new URLSearchParams(window.location.search);
+            const url = params.get("url");
+            if (url) {
+                document.getElementById("urlInput").value = url;
+            }
+
+            document
+                .getElementById("downloadForm")
+                .addEventListener("submit", (e) => {
+                    e.preventDefault();
+                    onDownload();
+                });
+
+            async function onDownload() {
+                const downloadUrl = document.getElementById("urlInput").value;
+                const targetUrl = encodeURIComponent(downloadUrl);
+                const videoUrl = `/api/download?url=${targetUrl}`;
+                const a = document.createElement("a");
+                a.href = videoUrl;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        </script>
+    </body>
+</html>
