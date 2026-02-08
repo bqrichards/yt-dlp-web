@@ -62,14 +62,16 @@ async fn download_video(
     Query(payload): Query<DownloadVideoRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     let url = payload.url.as_str();
-    let filename = match get_video_title(url).await {
+    let (video_title, video_stream) = tokio::join!(get_video_title(url), get_video_stream(url));
+
+    let filename = match video_title {
         Ok(title) => encode(title.as_str()).into_owned(),
         Err(e) => {
             error!("Failed to get title, defaulting: {:?}", e);
             "video".to_string()
         }
     };
-    let stream = get_video_stream(url).await.map_err(|e| {
+    let stream = video_stream.map_err(|e| {
         error!("Error when downloading video: {:?}", e);
 
         (
