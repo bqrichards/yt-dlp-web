@@ -59,11 +59,14 @@ jobs:
         run: |
           mkdir dist
           BIN_NAME="$(basename $(pwd))"
+          VERSION="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          OUT_NAME="${BIN_NAME}-${VERSION}-${TARGET}"
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp target/${{ matrix.target }}/release/${BIN_NAME}.exe dist/
+            cp target/${TARGET}/release/${BIN_NAME}.exe dist/${OUT_NAME}.exe
           else
-            cp target/${{ matrix.target }}/release/${BIN_NAME} dist/
+            cp target/${TARGET}/release/${BIN_NAME} dist/${OUT_NAME}
           fi
 
       - name: Upload artifact
