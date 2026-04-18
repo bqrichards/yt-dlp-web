@@ -1,8 +1,3 @@
-use std::{
-    io::{self},
-    string::FromUtf8Error,
-};
-
 use tempfile::env;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info, instrument};
@@ -21,6 +16,11 @@ use serde::Deserialize;
 use tokio::{fs::File, process::Command};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
+
+mod error;
+mod title;
+
+use error::DownloadError;
 
 fn get_port() -> u16 {
     std::env::var("PORT")
@@ -62,15 +62,19 @@ async fn download_video(
     Query(payload): Query<DownloadVideoRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     let url = payload.url.as_str();
-    let (video_title, video_stream) = tokio::join!(get_video_title(url), get_video_stream(url));
-
-    let filename = match video_title {
-        Ok(title) => encode(title.as_str()).into_owned(),
+    let (video_titles, video_stream) =
+        tokio::join!(title::get_video_titles(url), get_video_stream(url));
+    let filename = match video_titles {
+        Ok(titles) => match titles.get(0) {
+            Some(title) => encode(title.as_str()).into_owned(),
+            None => "video".to_string(),
+        },
         Err(e) => {
             error!("Failed to get title, defaulting: {:?}", e);
             "video".to_string()
         }
     };
+
     let stream = video_stream.map_err(|e| {
         error!("Error when downloading video: {:?}", e);
 
@@ -97,57 +101,6 @@ async fn download_video(
 
     let body = Body::from_stream(stream);
     Ok((headers, body).into_response())
-}
-
-#[derive(thiserror::Error, Debug)]
-enum DownloadError {
-    #[error("failed to run title command")]
-    TitleCommand(#[source] io::Error),
-    #[error("failed to run video command")]
-    VideoCommand(#[source] io::Error),
-    #[error("video download command exited with no status code")]
-    VideoExitNoCode,
-    #[error("video download command exited with status code {0}")]
-    VideoExitErrorCode(i32),
-    #[error("title download command exited with no status code")]
-    TitleExitNoCode,
-    #[error("title download command exited with status code {0}")]
-    TitleExitErrorCode(i32),
-    #[error("failed to open temp file")]
-    TempFileOpen(#[source] io::Error),
-    #[error("UTF-8 conversion failed")]
-    FromUtf8(#[source] FromUtf8Error),
-}
-
-#[instrument]
-async fn get_video_title(url: &str) -> Result<String, DownloadError> {
-    let cmd = Command::new("yt-dlp")
-        .arg("-S")
-        .arg("res,ext:mp4:m4a")
-        .arg("--recode")
-        .arg("mp4")
-        .arg("--print")
-        .arg("filename")
-        .arg(url)
-        .output()
-        .await
-        .map_err(|e| DownloadError::TitleCommand(e))?;
-
-    debug!("Command status: {}", cmd.status);
-    let code: Result<i32, DownloadError> = match cmd.status.code() {
-        Some(code) => match code {
-            0 => Ok(0),
-            _ => Err(DownloadError::TitleExitErrorCode(code)),
-        },
-        None => Err(DownloadError::TitleExitNoCode),
-    };
-    code?;
-
-    let title = String::from_utf8(cmd.stdout)
-        .map(|s| String::from(s.trim()))
-        .map_err(|e| DownloadError::FromUtf8(e))?;
-
-    Ok(title)
 }
 
 #[instrument]
