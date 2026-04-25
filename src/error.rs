@@ -17,8 +17,6 @@ pub enum DownloadError {
     TitleExitNoCode,
     #[error("title download command exited with status code {0}")]
     TitleExitErrorCode(i32),
-    #[error("failed to open temp file")]
-    TempFileOpen(#[source] io::Error),
     #[error("UTF-8 conversion failed")]
     FromUtf8(#[source] FromUtf8Error),
 }

@@ -4,8 +4,12 @@ use tokio::process::Command;
 
 use crate::error::DownloadError;
 
+// TODO Return `title` and `id`
+// `id` by regex [(id)].mp4$
+
 #[instrument]
 pub async fn get_video_titles(url: &str) -> Result<Vec<String>, DownloadError> {
+    let filename_template = "%(uploader)s - %(title)s [%(id)s].%(ext)s";
     let cmd = Command::new("yt-dlp")
         .arg("-S")
         .arg("res,ext:mp4:m4a")
@@ -13,6 +17,8 @@ pub async fn get_video_titles(url: &str) -> Result<Vec<String>, DownloadError> {
         .arg("mp4")
         .arg("--print")
         .arg("filename")
+        .arg("-o")
+        .arg(&filename_template)
         .arg(url)
         .output()
         .await

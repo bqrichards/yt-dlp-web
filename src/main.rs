@@ -1,26 +1,23 @@
 use tempfile::env;
+use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
-use urlencoding::encode;
 
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::Query,
-    http::{HeaderMap, Response, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
     routing::get,
 };
-use serde::Deserialize;
-use tokio::{fs::File, process::Command};
+use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
-use uuid::Uuid;
 
 mod error;
 mod title;
-
-use error::DownloadError;
+mod video;
 
 fn get_port() -> u16 {
     std::env::var("PORT")
@@ -33,7 +30,9 @@ fn get_port() -> u16 {
 async fn main() {
     tracing_subscriber::registry().with(fmt::layer()).init();
 
-    let api = Router::new().route("/download", get(download_video));
+    let api = Router::new()
+        .route("/queue", get(queue_video))
+        .route("/download", get(download_video));
 
     let static_dir = ServeDir::new("static");
     let app = Router::new()
@@ -53,31 +52,29 @@ async fn healthcheck() -> &'static str {
 }
 
 #[derive(Deserialize, Debug)]
-struct DownloadVideoRequest {
+struct QueueVideoRequest {
     url: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct VideoObject {
+    title: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DownloadVideoResponse {
+    videos: Vec<VideoObject>,
+}
+
 #[instrument]
-async fn download_video(
-    Query(payload): Query<DownloadVideoRequest>,
+async fn queue_video(
+    Query(payload): Query<QueueVideoRequest>,
 ) -> Result<Response<Body>, Response<Body>> {
     let url = payload.url.as_str();
-    let (video_titles, video_stream) =
-        tokio::join!(title::get_video_titles(url), get_video_stream(url));
-    let filename = match video_titles {
-        Ok(titles) => match titles.get(0) {
-            Some(title) => encode(title.as_str()).into_owned(),
-            None => "video".to_string(),
-        },
-        Err(e) => {
-            error!("Failed to get title, defaulting: {:?}", e);
-            "video".to_string()
-        }
-    };
-
-    let stream = video_stream.map_err(|e| {
-        error!("Error when downloading video: {:?}", e);
-
+    let (video_titles, _videos_downloaded) =
+        tokio::join!(title::get_video_titles(url), video::download_videos(url));
+    let titles = video_titles.map_err(|e| {
+        error!("titles error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Error downloading video stream",
@@ -85,61 +82,63 @@ async fn download_video(
             .into_response()
     })?;
 
+    let videos: Vec<VideoObject> = titles
+        .iter()
+        .map(|f| VideoObject {
+            title: f.to_string(),
+        })
+        .collect();
+
+    let body = DownloadVideoResponse { videos };
+    Ok(Json(body).into_response())
+}
+
+#[instrument]
+async fn download_video(
+    Query(payload): Query<VideoObject>,
+) -> Result<Response<Body>, Response<Body>> {
+    let filename = payload.title;
+    let mut path = env::temp_dir();
+    path.push(&filename);
+    debug!("Reading file: {:?}", path);
+
+    let file = File::open(path.clone()).await.map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("failed to open file {:?}: {}", path, e),
+        )
+            .into_response()
+    })?;
+
+    let metadata = file.metadata().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("metadata error: {}", e),
+        )
+            .into_response()
+    })?;
+    let content_length = metadata.len();
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
     let mut headers = HeaderMap::new();
     headers.insert(
-        header::CONTENT_DISPOSITION,
-        format!("attachment; filename={}", filename)
-            .parse()
-            .unwrap(),
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&content_length.to_string()).unwrap(),
     );
     headers.insert(
         header::CONTENT_TYPE,
-        "application/octet-stream".parse().unwrap(),
+        HeaderValue::from_str("application/octet-stream").unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename={}", &filename)
+            .parse()
+            .unwrap(),
     );
 
     debug!("{:?}", headers);
 
-    let body = Body::from_stream(stream);
     Ok((headers, body).into_response())
-}
-
-#[instrument]
-async fn get_video_stream(url: &str) -> Result<ReaderStream<File>, DownloadError> {
-    let mut path = env::temp_dir();
-    path.push(format!("ytdlp-web-{}.mp4", Uuid::new_v4()));
-    debug!("Temp File Path: {:?}", path);
-
-    let cmd = Command::new("yt-dlp")
-        .arg("-S")
-        .arg("res,ext:mp4:m4a")
-        .arg("--recode")
-        .arg("mp4")
-        .arg("-o")
-        .arg(&path)
-        .arg(url)
-        .output()
-        .await
-        .map_err(|e| DownloadError::VideoCommand(e))?;
-
-    debug!("Command status: {}", cmd.status);
-    let stdout = String::from_utf8(cmd.stdout).map_err(|e| DownloadError::FromUtf8(e))?;
-    let stderr = String::from_utf8(cmd.stderr).map_err(|e| DownloadError::FromUtf8(e))?;
-    debug!("Command stdout: {}", stdout);
-    debug!("Command stderr: {}", stderr);
-
-    let code: Result<i32, DownloadError> = match cmd.status.code() {
-        Some(code) => match code {
-            0 => Ok(0),
-            _ => Err(DownloadError::VideoExitErrorCode(code)),
-        },
-        None => Err(DownloadError::VideoExitNoCode),
-    };
-    code?;
-
-    let tempfile = File::open(path)
-        .await
-        .map_err(|e| DownloadError::TempFileOpen(e))?;
-    let stream = ReaderStream::new(tempfile);
-
-    Ok(stream)
 }
