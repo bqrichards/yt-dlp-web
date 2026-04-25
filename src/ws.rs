@@ -28,7 +28,7 @@ struct ServerVideoManifestMessage {
     message_type: String,
     video_count: usize,
     // TODO The elements in this array do have "message_type": "video_ready" which isn't really
-    // correct.
+    // correct but is also not an implementation issue, just semantic. Fix later.
     videos: Vec<ServerVideoReadyMessage>,
 }
 
@@ -119,18 +119,9 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
                 }
             };
 
-            let first = match titles.get(0) {
-                Some(title) => title,
-                None => {
-                    error!("no first title");
-                    return;
-                }
-            };
-
-            // Send manifest
             let manifest: ServerVideoManifestMessage = (&titles).into();
             let manifest_msg = match serde_json::to_string(&manifest) {
-                Ok(msg) => msg,
+                Ok(manifest_msg) => manifest_msg,
                 Err(e) => {
                     // TODO send error to client
                     error!("could not serialize message: {}", e);
@@ -150,19 +141,21 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
             // TODO Set exp date for each file so we can cleanup later.
             let _ = video::download_videos(&url).await;
 
-            let ready_message: ServerVideoReadyMessage = first.into();
-            let str_msg = serde_json::to_string(&ready_message);
-            match str_msg {
-                Ok(d) => {
-                    if socket.send(Message::Text(d.into())).await.is_err() {
-                        debug!("client {who} abruptly disconnected");
+            for title in titles {
+                let ready_message: ServerVideoReadyMessage = (&title).into();
+                let str_msg = serde_json::to_string(&ready_message);
+                match str_msg {
+                    Ok(d) => {
+                        if socket.send(Message::Text(d.into())).await.is_err() {
+                            debug!("client {who} abruptly disconnected");
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        // TODO send error to client
+                        error!("could not serialize message: {}", e);
                         return;
                     }
-                }
-                Err(e) => {
-                    // TODO send error to client
-                    error!("could not serialize message: {}", e);
-                    return;
                 }
             }
         }

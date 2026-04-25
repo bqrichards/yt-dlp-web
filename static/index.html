@@ -3,14 +3,14 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>yt-dlp webui</title>
+        <title>yt-dlp-web</title>
         <link rel="stylesheet" href="index.css" />
     </head>
 
     <body>
         <div class="container">
             <div>
-                <span class="text">yt-dlp webui</span>
+                <span class="title">yt-dlp-web</span>
             </div>
             <form id="downloadForm">
                 <div>
@@ -25,69 +25,12 @@
                     <button type="submit">Download</button>
                 </div>
             </form>
+            <div id="manifest" class="text">
+                <p>Downloading the following videos:</p>
+                <ul id="manifest-list">
+                </ul>
+            </div>
         </div>
-        <script>
-            // Load query param "url" into url input
-            const params = new URLSearchParams(window.location.search);
-            const url = params.get("url");
-            if (url) {
-                document.getElementById("urlInput").value = url;
-            }
-
-            document
-                .getElementById("downloadForm")
-                .addEventListener("submit", (e) => {
-                    e.preventDefault();
-                    onDownload();
-                });
-
-// TODO - convert this download to the WebSocket + download
-
-// Manifest message
-// {
-//   "message_type": "manifest",
-//   "video_count": 1,
-//   "videos": [
-//     {
-//       "message_type": "video_ready",
-//       "client_id": "5220fab2-b83d-4b42-a93d-9cc76849cf54",
-//       "video_id": "g2wpg9arGWY",
-//       "video_title": "Ruppture - Your Average Video Essay [g2wpg9arGWY].mp4",
-//       "download_url": "/api/download?id=g2wpg9arGWY"
-//     }
-//   ]
-// }
-
-// Video ready message
-// {
-//   "message_type": "video_ready",
-//   "client_id": "5220fab2-b83d-4b42-a93d-9cc76849cf54",
-//   "video_id": "g2wpg9arGWY",
-//   "video_title": "Ruppture - Your Average Video Essay [g2wpg9arGWY].mp4",
-//   "download_url": "/api/download?id=g2wpg9arGWY"
-// }
-
-            async function onDownload() {
-                const downloadUrl = document.getElementById("urlInput").value;
-                const targetUrl = encodeURIComponent(downloadUrl);
-                const queueUrl = `/api/queue?url=${targetUrl}`;
-                const response = await fetch(queueUrl);
-                if (response.ok) {
-                    const body = await response.json();
-                    console.debug(body);
-                    for (const video of body.videos) {
-                        // TODO ID
-                        const downloadUrl = `/api/download?title=${video.title}`;
-                        const a = document.createElement("a");
-                        a.href = downloadUrl;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                    }
-                } else {
-                    // TODO show error
-                }
-            }
-        </script>
+        <script src="./index.js"></script>
     </body>
 </html>

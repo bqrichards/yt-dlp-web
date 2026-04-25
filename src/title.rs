@@ -5,6 +5,7 @@ use tokio::process::Command;
 
 use crate::error::DownloadError;
 
+#[derive(Debug)]
 pub struct VideoTitleId {
     pub client_id: uuid::Uuid,
     pub video_id: String,
@@ -16,7 +17,7 @@ pub async fn get_video_titles(
     client_id: &uuid::Uuid,
     url: &str,
 ) -> Result<Vec<VideoTitleId>, DownloadError> {
-    let title_re = Regex::new(r".\[(\w+)\]\.mp4$").unwrap();
+    let title_re = Regex::new(r".\[(.+)\]\.mp4$").unwrap();
     let filename_template = "%(uploader)s - %(title)s [%(id)s].%(ext)s";
     let cmd = Command::new("yt-dlp")
         .arg("-S")
@@ -33,6 +34,11 @@ pub async fn get_video_titles(
         .map_err(|e| DownloadError::TitleCommand(e))?;
 
     debug!("Command status: {}", cmd.status);
+    let stdout = String::from_utf8(cmd.stdout).map_err(|e| DownloadError::FromUtf8(e))?;
+    let stderr = String::from_utf8(cmd.stderr).map_err(|e| DownloadError::FromUtf8(e))?;
+    debug!("Command stdout: {}", stdout);
+    debug!("Command stderr: {}", stderr);
+
     let code: Result<i32, DownloadError> = match cmd.status.code() {
         Some(code) => match code {
             0 => Ok(0),
@@ -42,8 +48,7 @@ pub async fn get_video_titles(
     };
     code?;
 
-    let titles: Vec<VideoTitleId> = String::from_utf8(cmd.stdout)
-        .map_err(|e| DownloadError::FromUtf8(e))?
+    let titles: Vec<VideoTitleId> = stdout
         .lines()
         .filter_map(|l| {
             let mut video_id: Option<&str> = None;
@@ -59,6 +64,7 @@ pub async fn get_video_titles(
             })
         })
         .collect();
+    debug!("titles: {:?}", titles);
 
     Ok(titles)
 }
