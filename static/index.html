@@ -41,6 +41,32 @@
                     onDownload();
                 });
 
+// TODO - convert this download to the WebSocket + download
+
+// Manifest message
+// {
+//   "message_type": "manifest",
+//   "video_count": 1,
+//   "videos": [
+//     {
+//       "message_type": "video_ready",
+//       "client_id": "5220fab2-b83d-4b42-a93d-9cc76849cf54",
+//       "video_id": "g2wpg9arGWY",
+//       "video_title": "Ruppture - Your Average Video Essay [g2wpg9arGWY].mp4",
+//       "download_url": "/api/download?id=g2wpg9arGWY"
+//     }
+//   ]
+// }
+
+// Video ready message
+// {
+//   "message_type": "video_ready",
+//   "client_id": "5220fab2-b83d-4b42-a93d-9cc76849cf54",
+//   "video_id": "g2wpg9arGWY",
+//   "video_title": "Ruppture - Your Average Video Essay [g2wpg9arGWY].mp4",
+//   "download_url": "/api/download?id=g2wpg9arGWY"
+// }
+
             async function onDownload() {
                 const downloadUrl = document.getElementById("urlInput").value;
                 const targetUrl = encodeURIComponent(downloadUrl);

@@ -8,7 +8,7 @@ use crate::error::DownloadError;
 #[instrument]
 pub async fn download_videos(url: &str) -> Result<(), DownloadError> {
     let mut path = env::temp_dir();
-    let filename_template = "%(uploader)s - %(title)s [%(id)s].%(ext)s";
+    let filename_template = "%(id)s.%(ext)s";
     path.push(filename_template);
     debug!("Temp File Path: {:?}", path);
 

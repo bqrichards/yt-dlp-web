@@ -1,14 +1,22 @@
 use tracing::{debug, instrument};
 
+use regex::Regex;
 use tokio::process::Command;
 
 use crate::error::DownloadError;
 
-// TODO Return `title` and `id`
-// `id` by regex [(id)].mp4$
+pub struct VideoTitleId {
+    pub client_id: uuid::Uuid,
+    pub video_id: String,
+    pub video_title: String,
+}
 
 #[instrument]
-pub async fn get_video_titles(url: &str) -> Result<Vec<String>, DownloadError> {
+pub async fn get_video_titles(
+    client_id: &uuid::Uuid,
+    url: &str,
+) -> Result<Vec<VideoTitleId>, DownloadError> {
+    let title_re = Regex::new(r".\[(\w+)\]\.mp4$").unwrap();
     let filename_template = "%(uploader)s - %(title)s [%(id)s].%(ext)s";
     let cmd = Command::new("yt-dlp")
         .arg("-S")
@@ -34,10 +42,22 @@ pub async fn get_video_titles(url: &str) -> Result<Vec<String>, DownloadError> {
     };
     code?;
 
-    let titles = String::from_utf8(cmd.stdout)
+    let titles: Vec<VideoTitleId> = String::from_utf8(cmd.stdout)
         .map_err(|e| DownloadError::FromUtf8(e))?
         .lines()
-        .map(|l| String::from(l))
+        .filter_map(|l| {
+            let mut video_id: Option<&str> = None;
+            // TODO Handle `extract` panicing. we should fail gracefully instead.
+            for (_, [id]) in title_re.captures_iter(l).map(|c| c.extract()) {
+                video_id = Some(id);
+            }
+
+            video_id.map(|s| VideoTitleId {
+                client_id: client_id.clone(),
+                video_id: String::from(s),
+                video_title: String::from(l),
+            })
+        })
         .collect();
 
     Ok(titles)
