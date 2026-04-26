@@ -108,15 +108,17 @@ function changeUI(uiState) {
 
     if (messageType === "manifest") {
         const manifestList = document.getElementById("manifest-list");
-        for (const video of message.videos) {
+        const newChildrenNodes = message.videos.map(video => {
             const videoId = video["video_id"];
             const videoTitle = video["video_title"];
 
             const li = document.createElement('li');
             li.id = `video-li-${videoId}`;
             li.textContent = videoTitle;
-            manifestList.appendChild(li);
-        }
+            return li;
+        });
+
+        manifestList.replaceChildren(...newChildrenNodes);
     } else if (messageType === "video_ready") {
         const videoId = message["video_id"];
         const manifestItem = document.getElementById(`video-li-${videoId}`);
