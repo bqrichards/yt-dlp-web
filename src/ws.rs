@@ -8,9 +8,7 @@ use tracing::{debug, error};
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
 
-//allows to extract the IP of connecting user
 use axum::extract::connect_info::ConnectInfo;
-// use axum::extract::ws::CloseFrame;
 
 use crate::{
     title::{self, VideoTitleId},
@@ -94,78 +92,75 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         }
     };
 
-    let message = process_message(msg, who);
-    match message {
-        ControlFlow::Continue(cmd) => {
-            let cmd = match cmd {
-                Some(cmd) => cmd,
-                None => {
-                    // TODO return message to client
-                    debug!("{who} send unknown command");
+    let ControlFlow::Continue(cmd) = process_message(msg, who) else {
+        debug!("message break");
+        return;
+    };
+
+    let cmd = match cmd {
+        Some(cmd) => cmd,
+        None => {
+            // TODO return message to client
+            debug!("{who} send unknown command");
+            return;
+        }
+    };
+
+    let ClientDownloadMessage { client_id, url } = cmd;
+    debug!("{who} = {} -> download {}", &client_id, &url);
+
+    let video_titles = title::get_video_titles(&client_id, &url).await;
+    let titles = match video_titles {
+        Ok(titles) => titles,
+        Err(e) => {
+            // TODO send error to client
+            error!("error getting video titles: {}", e);
+            return;
+        }
+    };
+
+    let manifest: ServerVideoManifestMessage = (&titles).into();
+    let manifest_string = match serde_json::to_string(&manifest) {
+        Ok(manifest_msg) => manifest_msg,
+        Err(e) => {
+            // TODO send error to client
+            error!("could not serialize message: {}", e);
+            return;
+        }
+    };
+    if socket
+        .send(Message::Text(manifest_string.into()))
+        .await
+        .is_err()
+    {
+        debug!("client {who} abruptly disconnected");
+        return;
+    }
+
+    // TODO Send back the videos as they are ready so they can be downloaded ASAP.
+    // TODO Set exp date for each file so we can cleanup later.
+    let _ = video::download_videos(&url).await;
+
+    for title in titles {
+        let video_ready: ServerVideoReadyMessage = (&title).into();
+        let video_ready_message = serde_json::to_string(&video_ready);
+        match video_ready_message {
+            Ok(d) => {
+                if socket.send(Message::Text(d.into())).await.is_err() {
+                    debug!("client {who} abruptly disconnected");
                     return;
                 }
-            };
-
-            let ClientDownloadMessage { client_id, url } = cmd;
-            debug!("{who} = {} -> download {}", &client_id, &url);
-
-            let video_titles = title::get_video_titles(&client_id, &url).await;
-            let titles = match video_titles {
-                Ok(titles) => titles,
-                Err(e) => {
-                    // TODO send error to client
-                    error!("error getting video titles: {}", e);
-                    return;
-                }
-            };
-
-            let manifest: ServerVideoManifestMessage = (&titles).into();
-            let manifest_msg = match serde_json::to_string(&manifest) {
-                Ok(manifest_msg) => manifest_msg,
-                Err(e) => {
-                    // TODO send error to client
-                    error!("could not serialize message: {}", e);
-                    return;
-                }
-            };
-            if socket
-                .send(Message::Text(manifest_msg.into()))
-                .await
-                .is_err()
-            {
-                debug!("client {who} abruptly disconnected");
+            }
+            Err(e) => {
+                // TODO send error to client
+                error!("could not serialize message: {}", e);
                 return;
             }
-
-            // TODO Send back the videos as they are ready so they can be downloaded ASAP.
-            // TODO Set exp date for each file so we can cleanup later.
-            let _ = video::download_videos(&url).await;
-
-            for title in titles {
-                let ready_message: ServerVideoReadyMessage = (&title).into();
-                let str_msg = serde_json::to_string(&ready_message);
-                match str_msg {
-                    Ok(d) => {
-                        if socket.send(Message::Text(d.into())).await.is_err() {
-                            debug!("client {who} abruptly disconnected");
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        // TODO send error to client
-                        error!("could not serialize message: {}", e);
-                        return;
-                    }
-                }
-            }
-        }
-        ControlFlow::Break(_) => {
-            debug!("message break");
         }
     }
 }
 
-/// helper to print contents of messages to stdout. Has special treatment for Close.
+/// Read message as request.
 fn process_message(
     msg: Message,
     who: SocketAddr,
