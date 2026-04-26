@@ -49,6 +49,19 @@ struct ServerVideoReadyMessage {
     download_url: String,
 }
 
+#[derive(Serialize)]
+struct ServerErrorMessage {
+    message_type: String,
+    error_message: String,
+}
+
+#[derive(Serialize)]
+struct ServerVideoErrorMessage {
+    message_type: String,
+    error_message: String,
+    video_id: String,
+}
+
 impl From<&VideoTitleId> for ServerVideoReadyMessage {
     fn from(value: &VideoTitleId) -> Self {
         Self {
@@ -100,8 +113,8 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     let cmd = match cmd {
         Some(cmd) => cmd,
         None => {
-            // TODO return message to client
             debug!("{who} send unknown command");
+            send_error(&mut socket, who, &ServerErrorMessage::bad_request()).await;
             return;
         }
     };
@@ -113,18 +126,18 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     let titles = match video_titles {
         Ok(titles) => titles,
         Err(e) => {
-            // TODO send error to client
-            error!("error getting video titles: {}", e);
+            error!("error getting video titles: {e}");
+            send_error(&mut socket, who, &ServerErrorMessage::video_titles()).await;
             return;
         }
     };
 
     let manifest: ServerVideoManifestMessage = (&titles).into();
     let manifest_string = match serde_json::to_string(&manifest) {
-        Ok(manifest_msg) => manifest_msg,
+        Ok(v) => v,
         Err(e) => {
-            // TODO send error to client
-            error!("could not serialize message: {}", e);
+            error!("server could not serialize manifest message: {e}");
+            send_error(&mut socket, who, &ServerErrorMessage::internal()).await;
             return;
         }
     };
@@ -143,24 +156,82 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
 
     for title in titles {
         let video_ready: ServerVideoReadyMessage = (&title).into();
-        let video_ready_message = serde_json::to_string(&video_ready);
-        match video_ready_message {
-            Ok(d) => {
-                if socket.send(Message::Text(d.into())).await.is_err() {
-                    debug!("client {who} abruptly disconnected");
-                    return;
-                }
-            }
+        let video_ready_message = match serde_json::to_string(&video_ready) {
+            Ok(v) => v,
             Err(e) => {
-                // TODO send error to client
-                error!("could not serialize message: {}", e);
+                error!("server could not serialize video ready message: {e}");
+                send_error(
+                    &mut socket,
+                    who,
+                    &ServerVideoErrorMessage::from(video_ready),
+                )
+                .await;
                 return;
             }
+        };
+
+        if socket
+            .send(Message::Text(video_ready_message.into()))
+            .await
+            .is_err()
+        {
+            debug!("client {who} abruptly disconnected");
+            return;
         }
     }
 }
 
-/// Read message as request.
+impl ServerErrorMessage {
+    fn bad_request() -> ServerErrorMessage {
+        Self {
+            message_type: "error".to_string(),
+            error_message: "Client sent bad request".to_string(),
+        }
+    }
+
+    fn internal() -> ServerErrorMessage {
+        Self {
+            message_type: "error".to_string(),
+            error_message: "Internal Server Error".to_string(),
+        }
+    }
+
+    fn video_titles() -> ServerErrorMessage {
+        Self {
+            message_type: "error".to_string(),
+            error_message: "Error downloading video titles".to_string(),
+        }
+    }
+}
+
+impl From<ServerVideoReadyMessage> for ServerVideoErrorMessage {
+    fn from(value: ServerVideoReadyMessage) -> Self {
+        Self {
+            message_type: "error".to_string(),
+            error_message: "Internal Server Error".to_string(),
+            video_id: value.video_id,
+        }
+    }
+}
+
+async fn send_error<T>(socket: &mut WebSocket, who: SocketAddr, error: &T)
+where
+    T: ?Sized + Serialize,
+{
+    let message = match serde_json::to_string(error) {
+        Ok(message) => message,
+        Err(e) => {
+            error!("Error serializing error message: {e}");
+            return;
+        }
+    };
+
+    if socket.send(Message::Text(message.into())).await.is_err() {
+        debug!("client {who} abruptly disconnected");
+    }
+}
+
+/// Parse message into request.
 fn process_message(
     msg: Message,
     who: SocketAddr,
