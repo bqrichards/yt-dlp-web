@@ -17,7 +17,6 @@ pub async fn get_video_titles(
     client_id: &uuid::Uuid,
     url: &str,
 ) -> Result<Vec<VideoTitleId>, DownloadError> {
-    let title_re = Regex::new(r".\[(.+)\]\.mp4$").unwrap();
     let filename_template = "%(uploader)s - %(title)s [%(id)s].%(ext)s";
     let cmd = Command::new("yt-dlp")
         .arg("-S")
@@ -48,14 +47,13 @@ pub async fn get_video_titles(
     };
     code?;
 
+    let title_re = Regex::new(r".\[([A-Za-z0-9_-]+)\]\.mp4$").unwrap();
     let titles: Vec<VideoTitleId> = stdout
         .lines()
         .filter_map(|l| {
-            let mut video_id: Option<&str> = None;
-            // TODO Handle `extract` panicing. we should fail gracefully instead.
-            for (_, [id]) in title_re.captures_iter(l).map(|c| c.extract()) {
-                video_id = Some(id);
-            }
+            let video_id = title_re
+                .captures_iter(l)
+                .find_map(|caps| caps.get(1).map(|m| m.as_str()));
 
             video_id.map(|s| VideoTitleId {
                 client_id: client_id.clone(),

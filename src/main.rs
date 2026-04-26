@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use regex::Regex;
 use tempfile::env;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
@@ -74,8 +75,12 @@ async fn download_video(
     Query(payload): Query<VideoObject>,
 ) -> Result<Response<Body>, Response<Body>> {
     let video_id = payload.id;
-    // FIXME make sure we cannot escape the temp folder with a crafted id like "../"
-    let filename = format!("{}.mp4", &video_id);
+    let video_id_re = Regex::new(r"^[A-Za-z0-9_-]+$").unwrap();
+    if !video_id_re.is_match(&video_id) {
+        return Err((StatusCode::BAD_REQUEST, "invalid video id").into_response());
+    }
+
+    let filename = format!("{}.mp4", video_id);
     let mut path = env::temp_dir();
     path.push(&filename);
     debug!("Reading file: {:?}", path);
@@ -111,10 +116,7 @@ async fn download_video(
     );
     headers.insert(
         header::CONTENT_DISPOSITION,
-        // TODO use video name instead of video id
-        format!("attachment; filename={}", &video_id)
-            .parse()
-            .unwrap(),
+        HeaderValue::from_str("attachment").unwrap(),
     );
 
     debug!("{:?}", headers);
