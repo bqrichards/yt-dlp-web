@@ -150,8 +150,8 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         return;
     }
 
-    // TODO Send back the videos as they are ready so they can be downloaded ASAP.
-    // TODO Set exp date for each file so we can cleanup later.
+    // TODO Send back the videos as they are ready so they can be downloaded ASAP. https://github.com/bqrichards/yt-dlp-web/issues/8
+    // TODO Set exp date for each file so we can cleanup later. https://github.com/bqrichards/yt-dlp-web/issues/4
     let _ = video::download_videos(&url).await;
 
     for title in titles {
