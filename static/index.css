@@ -15,13 +15,17 @@ body {
   max-width: 500px;
 }
 
-.text {
+.title {
   display: block;
   font-size: 2.5rem;
   font-weight: bold;
   color: #e3e3e3;
   margin-bottom: 1.5rem;
   word-wrap: break-word;
+}
+
+.text {
+  color: #e3e3e3;
 }
 
 input[type="url"] {
