@@ -17,6 +17,7 @@ const wsUri = "/api/ws"
 async function onDownload() {
     let websocket = null;
     const downloadUrl = document.getElementById("urlInput").value;
+    changeUI({ message: { message_type: "clear_manifest" } });
 
     function initializeWebSocketListeners(ws) {
         let uuid = uuidv4();
@@ -123,5 +124,10 @@ function changeUI(uiState) {
         const videoId = message["video_id"];
         const manifestItem = document.getElementById(`video-li-${videoId}`);
         manifestItem.textContent = `✓ ${manifestItem.textContent}`;
+    } else if (messageType === "clear_manifest") {
+      const manifestList = document.getElementById("manifest-list");
+      
+      // removes all children
+      manifestList.replaceChildren();
     }
 }

@@ -3,6 +3,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 use tracing::{debug, error};
 
 use std::net::SocketAddr;
@@ -12,7 +13,7 @@ use axum::extract::connect_info::ConnectInfo;
 
 use crate::{
     title::{self, VideoTitleId},
-    video,
+    video::{self, DownloadComplete},
 };
 
 #[derive(Deserialize)]
@@ -40,7 +41,7 @@ impl From<&Vec<VideoTitleId>> for ServerVideoManifestMessage {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct ServerVideoReadyMessage {
     message_type: String,
     client_id: uuid::Uuid,
@@ -66,7 +67,7 @@ impl From<&VideoTitleId> for ServerVideoReadyMessage {
     fn from(value: &VideoTitleId) -> Self {
         Self {
             message_type: "video_ready".to_string(),
-            client_id: value.client_id.clone(),
+            client_id: value.client_id,
             video_id: value.video_id.clone(),
             video_title: value.video_title.clone(),
             download_url: format!("/api/download?id={}", value.video_id.clone()),
@@ -150,34 +151,61 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         return;
     }
 
-    // TODO Send back the videos as they are ready so they can be downloaded ASAP. https://github.com/bqrichards/yt-dlp-web/issues/8
-    // TODO Set exp date for each file so we can cleanup later. https://github.com/bqrichards/yt-dlp-web/issues/4
-    let _ = video::download_videos(&url).await;
+    let (tx, mut rx) = mpsc::channel::<DownloadComplete>(32);
 
-    for title in titles {
-        let video_ready: ServerVideoReadyMessage = (&title).into();
-        let video_ready_message = match serde_json::to_string(&video_ready) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("server could not serialize video ready message: {e}");
-                send_error(
-                    &mut socket,
-                    who,
-                    &ServerVideoErrorMessage::from(video_ready),
-                )
-                .await;
+    let sender_task = tokio::spawn(async move {
+        while let Some(v) = rx.recv().await {
+            let video_ready = ServerVideoReadyMessage {
+                message_type: "video_ready".to_string(),
+                client_id,
+                video_id: v.id.clone(),
+                video_title: v.title.clone(),
+                download_url: format!("/api/download?id={}", v.id.clone()),
+            };
+            debug!("video_ready message: {:?}", video_ready);
+            let video_ready_message = match serde_json::to_string(&video_ready) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("server could not serialize video ready message: {e}");
+                    send_error(
+                        &mut socket,
+                        who,
+                        &ServerVideoErrorMessage::from(video_ready),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            debug!("sending message through socket: {:?}", video_ready_message);
+            if socket
+                .send(Message::Text(video_ready_message.into()))
+                .await
+                .is_err()
+            {
+                debug!("client {who} abruptly disconnected");
                 return;
             }
-        };
-
-        if socket
-            .send(Message::Text(video_ready_message.into()))
-            .await
-            .is_err()
-        {
-            debug!("client {who} abruptly disconnected");
-            return;
         }
+    });
+
+    let download_videos_task = video::download_videos(&url, |v| {
+        let tx = tx.clone();
+
+        async move {
+            if let Err(e) = tx.send(v.clone()).await {
+                error!("tx error: {:?}", e)
+            }
+        }
+    })
+    .await;
+
+    if let Err(e) = sender_task.await {
+        error!("sender_task join error: {:?}", e)
+    }
+
+    if let Err(e) = download_videos_task {
+        error!("error downloading video: {:?}", e)
     }
 }
 
