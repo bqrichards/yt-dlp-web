@@ -21,7 +21,6 @@ use tower_http::services::ServeDir;
 use crate::ws::ws_handler;
 
 mod error;
-mod title;
 mod video;
 mod ws;
 
