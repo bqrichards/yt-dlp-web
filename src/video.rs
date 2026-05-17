@@ -46,11 +46,8 @@ where
         .stdout(Stdio::piped());
 
     // Pipe stdout from command so we can send video to client when download is complete
-    let mut child = cmd.spawn().map_err(DownloadError::VideoCommand)?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(DownloadError::VideoCommandNoStdout)?;
+    let mut child = cmd.spawn().map_err(DownloadError::Command)?;
+    let stdout = child.stdout.take().ok_or(DownloadError::CommandNoStdout)?;
 
     let mut reader = BufReader::new(stdout).lines();
     let child_task = tokio::spawn(async move { child.wait().await });
@@ -58,7 +55,7 @@ where
     while let Some(line) = reader
         .next_line()
         .await
-        .map_err(DownloadError::VideoCommandOutput)?
+        .map_err(DownloadError::CommandOutput)?
     {
         // TODO the videos download in order of the titles so we know which video fails based on index.
         // For now we will discard, but this could be mapped to an error for the client.
@@ -77,14 +74,14 @@ where
     // Wait for command to finish
     let exit_status = child_task
         .await
-        .map_err(DownloadError::VideoCommandJoin)?
-        .map_err(DownloadError::VideoCommand)?;
+        .map_err(DownloadError::CommandJoin)?
+        .map_err(DownloadError::Command)?;
 
     match exit_status.code() {
         Some(code) => match code {
             0 => Ok(()),
-            _ => Err(DownloadError::VideoExitErrorCode(code)),
+            _ => Err(DownloadError::ExitErrorCode(code)),
         },
-        None => Err(DownloadError::VideoExitNoCode),
+        None => Err(DownloadError::ExitNoCode),
     }
 }
