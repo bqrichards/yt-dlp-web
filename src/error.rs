@@ -3,12 +3,20 @@ use std::{
     string::FromUtf8Error,
 };
 
+use tokio::task::JoinError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadError {
     #[error("failed to run title command")]
     TitleCommand(#[source] io::Error),
     #[error("failed to run video command")]
     VideoCommand(#[source] io::Error),
+    #[error("failed to read output of video command")]
+    VideoCommandOutput(#[source] io::Error),
+    #[error("failed to join on video command")]
+    VideoCommandJoin(#[source] JoinError),
+    #[error("could not read stdout from video command")]
+    VideoCommandNoStdout,
     #[error("video download command exited with no status code")]
     VideoExitNoCode,
     #[error("video download command exited with status code {0}")]

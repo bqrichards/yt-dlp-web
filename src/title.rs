@@ -26,15 +26,15 @@ pub async fn get_video_titles(
         .arg("--print")
         .arg("filename")
         .arg("-o")
-        .arg(&filename_template)
+        .arg(filename_template)
         .arg(url)
         .output()
         .await
-        .map_err(|e| DownloadError::TitleCommand(e))?;
+        .map_err(DownloadError::TitleCommand)?;
 
     debug!("Command status: {}", cmd.status);
-    let stdout = String::from_utf8(cmd.stdout).map_err(|e| DownloadError::FromUtf8(e))?;
-    let stderr = String::from_utf8(cmd.stderr).map_err(|e| DownloadError::FromUtf8(e))?;
+    let stdout = String::from_utf8(cmd.stdout).map_err(DownloadError::FromUtf8)?;
+    let stderr = String::from_utf8(cmd.stderr).map_err(DownloadError::FromUtf8)?;
     debug!("Command stdout: {}", stdout);
     debug!("Command stderr: {}", stderr);
 
@@ -56,7 +56,7 @@ pub async fn get_video_titles(
                 .find_map(|caps| caps.get(1).map(|m| m.as_str()));
 
             video_id.map(|s| VideoTitleId {
-                client_id: client_id.clone(),
+                client_id: *client_id,
                 video_id: String::from(s),
                 video_title: String::from(l),
             })
