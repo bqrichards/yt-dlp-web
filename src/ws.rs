@@ -11,7 +11,10 @@ use std::ops::ControlFlow;
 
 use axum::extract::connect_info::ConnectInfo;
 
-use crate::video::{self, DownloadComplete};
+use crate::{
+    error::DownloadError,
+    video::{self, DownloadComplete},
+};
 
 #[derive(Deserialize)]
 struct ClientDownloadMessage {
@@ -45,11 +48,12 @@ struct ServerVideoErrorMessage {
 struct RequestFinishedMessage {
     message_type: String,
     client_id: uuid::Uuid,
+    success: bool,
 }
 
 enum DownloadEvent {
     Video(DownloadComplete),
-    Done,
+    Done(Option<DownloadError>),
 }
 
 /// The handler for the HTTP request (this gets called when the HTTP request lands at the start
@@ -138,11 +142,12 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
                         return;
                     }
                 }
-                DownloadEvent::Done => {
+                DownloadEvent::Done(download_error) => {
                     // Tell client all videos are finished
                     let request_finished = RequestFinishedMessage {
                         message_type: "request_finished".to_string(),
                         client_id,
+                        success: download_error.is_none(),
                     };
                     debug!("request_finished message: {:?}", request_finished);
                     let request_finished_message = match serde_json::to_string(&request_finished) {
@@ -182,17 +187,18 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     })
     .await;
 
+    let download_videos_task_err = download_videos_task.err();
+    if let Some(e) = &download_videos_task_err {
+        error!("error downloading video: {:?}", e)
+    }
+
     // downloading videos is done. send done message in channel.
-    if let Err(e) = tx.send(DownloadEvent::Done).await {
+    if let Err(e) = tx.send(DownloadEvent::Done(download_videos_task_err)).await {
         error!("error sending download done event to client: {:?}", e)
     }
 
     if let Err(e) = sender_task.await {
         error!("sender_task join error: {:?}", e)
-    }
-
-    if let Err(e) = download_videos_task {
-        error!("error downloading video: {:?}", e)
     }
 }
 
