@@ -4,7 +4,7 @@ use tempfile::env;
 use tracing::{debug, error, instrument};
 
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::Command,
 };
 
@@ -43,19 +43,24 @@ where
         .arg("-o")
         .arg(&path)
         .arg(url)
-        .stdout(Stdio::piped());
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     // Pipe stdout from command so we can send video to client when download is complete
     let mut child = cmd.spawn().map_err(DownloadError::Command)?;
-    let stdout = child.stdout.take().ok_or(DownloadError::CommandNoStdout)?;
 
+    let stdout = child.stdout.take().ok_or(DownloadError::CommandNoStdout)?;
     let mut reader = BufReader::new(stdout).lines();
+
+    let stderr = child.stderr.take().ok_or(DownloadError::CommandNoStderr)?;
+    let mut reader_err = BufReader::new(stderr);
+
     let child_task = tokio::spawn(async move { child.wait().await });
 
     while let Some(line) = reader
         .next_line()
         .await
-        .map_err(DownloadError::CommandOutput)?
+        .map_err(DownloadError::CommandStdoutOutput)?
     {
         // TODO the videos download in order of the titles so we know which video fails based on index.
         // For now we will discard, but this could be mapped to an error for the client.
@@ -69,6 +74,16 @@ where
         } else {
             error!("video download could not be decoded from line: {:?}", line);
         }
+    }
+
+    // Read stderr into a String
+    let mut stderr_output = String::new();
+    let stderr_size = reader_err
+        .read_to_string(&mut stderr_output)
+        .await
+        .map_err(DownloadError::CommandStderrOutput)?;
+    if stderr_size > 0 {
+        error!(stderr_output);
     }
 
     // Wait for command to finish
