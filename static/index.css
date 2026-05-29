@@ -89,3 +89,8 @@ button:active {
     color: green;
     display: none;
 }
+
+#error-message {
+    color: red;
+    display: none;
+}

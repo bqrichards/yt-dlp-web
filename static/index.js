@@ -123,11 +123,14 @@ function changeUI(uiState) {
       manifestList.appendChild(li);
     }
   } else if (messageType === "request_finished") {
-    document.getElementById("done-message").style.display = "block";
+    const success = message["success"];
+    const statusElement = success ? "done-message" : "error-message";
+    document.getElementById(statusElement).style.display = "block";
   } else if (messageType === "clear_manifest") {
     const manifestList = document.getElementById("manifest-list");
     manifestList.replaceChildren();
 
     document.getElementById("done-message").style.display = "none";
+    document.getElementById("error-message").style.display = "none";
   }
 }
