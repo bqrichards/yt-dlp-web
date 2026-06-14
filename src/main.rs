@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::OnceLock};
 
 use regex::Regex;
 use tempfile::env;
@@ -18,7 +18,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
-use crate::ws::ws_handler;
+use crate::{
+    video::MediaType::{self},
+    ws::ws_handler,
+};
 
 mod error;
 mod video;
@@ -67,19 +70,29 @@ async fn healthcheck() -> &'static str {
 #[derive(Serialize, Deserialize, Debug)]
 struct VideoObject {
     id: String,
+    media_type: MediaType,
+}
+
+static VIDEO_ID_RE: OnceLock<Regex> = OnceLock::new();
+
+fn video_id_re() -> &'static Regex {
+    VIDEO_ID_RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9_-]{1,64}$").unwrap())
 }
 
 #[instrument]
 async fn download_video(
     Query(payload): Query<VideoObject>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let video_id = payload.id;
-    let video_id_re = Regex::new(r"^[A-Za-z0-9_-]+$").unwrap();
-    if !video_id_re.is_match(&video_id) {
+    let VideoObject { id, media_type } = payload;
+    if !video_id_re().is_match(&id) {
         return Err((StatusCode::BAD_REQUEST, "invalid video id").into_response());
     }
+    let ext = match media_type {
+        MediaType::Audio => "mp3",
+        MediaType::Video => "mp4",
+    };
 
-    let filename = format!("{}.mp4", video_id);
+    let filename = format!("{}.{}", id, ext);
     let mut path = env::temp_dir();
     path.push(&filename);
     debug!("Reading file: {:?}", path);

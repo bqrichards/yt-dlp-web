@@ -9,23 +9,22 @@
 
     <body>
         <div class="container">
-            <div>
-                <span class="title">yt-dlp-web</span>
-            </div>
+            <span class="title">yt-dlp-web</span>
             <form id="downloadForm">
-                <div>
-                    <input
-                        type="url"
-                        placeholder="Paste URL here..."
-                        id="urlInput"
-                        required
-                    />
-                </div>
-                <div>
-                    <button type="submit">Download</button>
-                </div>
+                <input
+                    type="url"
+                    placeholder="Paste URL here..."
+                    id="url-input"
+                    required
+                />
+                <label for="mediaType" class="text">Media Type:</label>
+                <select name="mediaType" id="mediaType">
+                    <option value="Video">Video</option>
+                    <option value="Audio">Audio</option>
+                </select>
+                <button type="submit" id="download-button">Download</button>
             </form>
-            <div id="manifest" class="text">
+            <div id="manifest-container" class="text">
                 <p>Downloaded the following videos:</p>
                 <ul id="manifest-list"></ul>
             </div>

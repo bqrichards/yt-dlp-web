@@ -14,7 +14,8 @@ const wsUri = "/api/ws";
 
 async function onDownload() {
   let websocket = null;
-  const downloadUrl = document.getElementById("urlInput").value;
+  const downloadUrl = document.getElementById("url-input").value;
+  const mediaType = document.getElementById("mediaType").value;
   changeUI({ message: { message_type: "clear_manifest" } });
 
   function initializeWebSocketListeners(ws) {
@@ -25,6 +26,7 @@ async function onDownload() {
       const downloadMessage = JSON.stringify({
         client_id: uuid,
         url: downloadUrl,
+        media_type: mediaType,
       });
       ws.send(downloadMessage);
     });
@@ -41,8 +43,10 @@ async function onDownload() {
         changeUI({ message: parsedData });
       } else if (parsedData["message_type"] === "request_finished") {
         changeUI({ message: parsedData });
+      } else if (parsedData["message_type"] === "error") {
+        changeUI({ message: parsedData });
       } else {
-        console.error("Unknown message_type");
+        console.error("Unknown message_type:", parsedData["message_type"]);
       }
     });
 
@@ -115,6 +119,7 @@ function changeUI(uiState) {
     let li = document.getElementById(id);
     if (!li) {
       const manifestList = document.getElementById("manifest-list");
+      document.getElementById("manifest-container").style.display = "block";
 
       li = document.createElement("li");
       li.id = id;
@@ -130,7 +135,12 @@ function changeUI(uiState) {
     const manifestList = document.getElementById("manifest-list");
     manifestList.replaceChildren();
 
+    document.getElementById("manifest-container").style.display = "none";
     document.getElementById("done-message").style.display = "none";
     document.getElementById("error-message").style.display = "none";
+  } else if (messageType === "error") {
+    const errorMessage =
+      message["error_message"] || "An unknown error occurred";
+    alert(`Error: ${errorMessage}`);
   }
 }

@@ -13,13 +13,14 @@ use axum::extract::connect_info::ConnectInfo;
 
 use crate::{
     error::DownloadError,
-    video::{self, DownloadComplete},
+    video::{self, DownloadComplete, MediaType},
 };
 
 #[derive(Deserialize)]
 struct ClientDownloadMessage {
     client_id: uuid::Uuid,
     url: String,
+    media_type: MediaType,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +29,7 @@ struct ServerVideoReadyMessage {
     client_id: uuid::Uuid,
     video_id: String,
     video_title: String,
+    media_type: MediaType,
     download_url: String,
 }
 
@@ -95,13 +97,17 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     let cmd = match cmd {
         Some(cmd) => cmd,
         None => {
-            debug!("{who} send unknown command");
+            debug!("{who} sent an unknown command");
             send_error(&mut socket, who, &ServerErrorMessage::bad_request()).await;
             return;
         }
     };
 
-    let ClientDownloadMessage { client_id, url } = cmd;
+    let ClientDownloadMessage {
+        client_id,
+        url,
+        media_type,
+    } = cmd;
     debug!("{who} = {} -> download {}", &client_id, &url);
 
     let (tx, mut rx) = mpsc::channel::<DownloadEvent>(32);
@@ -115,7 +121,12 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
                         client_id,
                         video_id: v.id.clone(),
                         video_title: v.title.clone(),
-                        download_url: format!("/api/download?id={}", v.id.clone()),
+                        media_type: v.media_type.clone(),
+                        download_url: format!(
+                            "/api/download?id={}&media_type={}",
+                            v.id.clone(),
+                            v.media_type.clone()
+                        ),
                     };
                     debug!("video_ready message: {:?}", video_ready);
                     let video_ready_message = match serde_json::to_string(&video_ready) {
@@ -176,7 +187,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         }
     });
 
-    let download_videos_task = video::download_videos(&url, |v| {
+    let download_videos_task = video::download_videos(&url, media_type, |v| {
         let tx = tx.clone();
 
         async move {
@@ -233,6 +244,7 @@ where
         }
     };
 
+    debug!("sending message through socket: {:?}", message);
     if socket.send(Message::Text(message.into())).await.is_err() {
         debug!("client {who} abruptly disconnected");
     }
