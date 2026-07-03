@@ -10,12 +10,25 @@ document.getElementById("downloadForm").addEventListener("submit", (e) => {
   onDownload();
 });
 
+document.getElementById("media-format").addEventListener("change", (e) => {
+  // Show or hide the video options based on the media format selected.
+  const isVideoSelected = e.target.value === "Video";
+  document.getElementById("video-options").style.display = isVideoSelected
+    ? "block"
+    : "none";
+});
+
 const wsUri = "/api/ws";
 
 async function onDownload() {
   let websocket = null;
   const downloadUrl = document.getElementById("url-input").value;
-  const mediaType = document.getElementById("mediaType").value;
+  const mediaFormat = document.querySelector(
+    'input[name="media_format"]:checked',
+  ).value;
+  const videoResolution = document.querySelector(
+    'input[name="video_resolution"]:checked',
+  ).value;
   changeUI({ message: { message_type: "clear_manifest" } });
 
   function initializeWebSocketListeners(ws) {
@@ -26,7 +39,8 @@ async function onDownload() {
       const downloadMessage = JSON.stringify({
         client_id: uuid,
         url: downloadUrl,
-        media_type: mediaType,
+        media_format: mediaFormat,
+        video_resolution: videoResolution,
       });
       ws.send(downloadMessage);
     });

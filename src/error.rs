@@ -4,8 +4,10 @@ use tokio::task::JoinError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadError {
-    #[error("failed to run video command")]
-    Command(#[source] io::Error),
+    #[error("failed to spawn video command")]
+    CommandSpawn(#[source] io::Error),
+    #[error("failed to await video command exit code")]
+    CommandExitCode(#[source] io::Error),
     #[error("failed to read stdout of video command")]
     CommandStdoutOutput(#[source] io::Error),
     #[error("failed to read stderr of video command")]

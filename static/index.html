@@ -17,11 +17,56 @@
                     id="url-input"
                     required
                 />
-                <label for="mediaType" class="text">Media Type:</label>
-                <select name="mediaType" id="mediaType">
-                    <option value="Video">Video</option>
-                    <option value="Audio">Audio</option>
-                </select>
+                <fieldset id="media-format">
+                    <legend>Format</legend>
+
+                    <label>
+                        <input
+                            type="radio"
+                            name="media_format"
+                            value="Video"
+                            checked
+                        />
+                        Video
+                    </label>
+
+                    <label>
+                        <input type="radio" name="media_format" value="Audio" />
+                        Audio
+                    </label>
+                </fieldset>
+
+                <fieldset id="video-options">
+                    <legend>Max Resolution</legend>
+
+                    <label>
+                        <input
+                            type="radio"
+                            name="video_resolution"
+                            value="FHD"
+                            checked
+                        />
+                        1080p
+                    </label>
+
+                    <label>
+                        <input
+                            type="radio"
+                            name="video_resolution"
+                            value="QHD"
+                        />
+                        1440p
+                    </label>
+
+                    <label>
+                        <input
+                            type="radio"
+                            name="video_resolution"
+                            value="UHD"
+                        />
+                        4K
+                    </label>
+                </fieldset>
                 <button type="submit" id="download-button">Download</button>
             </form>
             <div id="manifest-container" class="text">

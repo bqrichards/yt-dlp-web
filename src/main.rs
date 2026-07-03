@@ -18,10 +18,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
-use crate::{
-    video::MediaType::{self},
-    ws::ws_handler,
-};
+use crate::ws::{MediaFormat, ws_handler};
 
 mod error;
 mod video;
@@ -70,7 +67,7 @@ async fn healthcheck() -> &'static str {
 #[derive(Serialize, Deserialize, Debug)]
 struct VideoObject {
     id: String,
-    media_type: MediaType,
+    media_format: MediaFormat,
 }
 
 static VIDEO_ID_RE: OnceLock<Regex> = OnceLock::new();
@@ -83,13 +80,13 @@ fn video_id_re() -> &'static Regex {
 async fn download_video(
     Query(payload): Query<VideoObject>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let VideoObject { id, media_type } = payload;
+    let VideoObject { id, media_format } = payload;
     if !video_id_re().is_match(&id) {
         return Err((StatusCode::BAD_REQUEST, "invalid video id").into_response());
     }
-    let ext = match media_type {
-        MediaType::Audio => "mp3",
-        MediaType::Video => "mp4",
+    let ext = match media_format {
+        MediaFormat::Audio => "mp3",
+        MediaFormat::Video => "mp4",
     };
 
     let filename = format!("{}.{}", id, ext);

@@ -1,6 +1,5 @@
 use std::process::Stdio;
 
-use serde::{Deserialize, Serialize};
 use tempfile::env;
 use tracing::{debug, error, instrument};
 
@@ -15,13 +14,13 @@ use crate::error::DownloadError;
 pub struct DownloadComplete {
     pub id: String,
     pub title: String,
-    pub media_type: MediaType,
+    pub media_options: MediaOptions,
 }
 
 #[instrument(skip_all, fields(%url))]
 pub async fn download_videos<F, Fut>(
     url: &str,
-    media_type: MediaType,
+    media_options: MediaOptions,
     mut on_download_complete: F,
 ) -> Result<(), DownloadError>
 where
@@ -36,7 +35,10 @@ where
     /// Delimiter between video id and video title
     const DELIM: char = '\x1F';
     let mut cmd = Command::new("yt-dlp");
-    change_download_format(media_type, &mut cmd);
+    change_download(&media_options, &mut cmd);
+    // FIXME We now have a bug where if a video is downloaded with a certain max_resolution,
+    // changing that max resolution and downloading again will return the old video because
+    // the filename is only the id and title, does not include resolution.
     cmd.arg("--newline")
         .arg("--print")
         .arg(format!("after_move:%(id)s{}%(title)s", DELIM))
@@ -46,7 +48,7 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(DownloadError::Command)?;
+    let mut child = cmd.spawn().map_err(DownloadError::CommandSpawn)?;
 
     // Pipe stdout from command so we can send video to client when download is complete
     let stdout = child.stdout.take().ok_or(DownloadError::CommandNoStdout)?;
@@ -69,7 +71,7 @@ where
             let decoded = DownloadComplete {
                 id: id.to_string(),
                 title: title.to_string(),
-                media_type,
+                media_options,
             };
             debug!("Calling on_download_complete with decoded: {:?}", decoded);
             on_download_complete(decoded).await;
@@ -92,7 +94,7 @@ where
     let exit_status = child_task
         .await
         .map_err(DownloadError::CommandJoin)?
-        .map_err(DownloadError::Command)?;
+        .map_err(DownloadError::CommandExitCode)?;
 
     match exit_status.code() {
         Some(code) => match code {
@@ -103,32 +105,43 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub enum MediaType {
-    Audio,
-    Video,
+#[derive(Debug, Clone, Copy)]
+pub enum VideoResolution {
+    /// 1080p
+    FHD,
+    /// 1440p (2K)
+    QHD,
+    /// 2160p (4K)
+    UHD,
 }
 
-impl std::fmt::Display for MediaType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl VideoResolution {
+    pub fn height(&self) -> i32 {
         match self {
-            Self::Audio => write!(f, "Audio"),
-            Self::Video => write!(f, "Video"),
+            Self::FHD => 1080,
+            Self::QHD => 1440,
+            Self::UHD => 2160,
         }
     }
 }
 
-fn change_download_format(media_type: MediaType, cmd: &mut Command) {
-    match media_type {
-        MediaType::Audio => {
+#[derive(Debug, Clone, Copy)]
+pub enum MediaOptions {
+    Audio,
+    Video { max_resolution: VideoResolution },
+}
+
+fn change_download(download_options: &MediaOptions, cmd: &mut Command) {
+    match download_options {
+        MediaOptions::Audio => {
             cmd.arg("-t").arg("mp3");
         }
-        // TODO Accept max resolution as argument instead of always choosing 1080p
-        // https://github.com/bqrichards/yt-dlp-web/issues/20
-        // https://github.com/yt-dlp/yt-dlp#format-selection
-        MediaType::Video => {
+        MediaOptions::Video { max_resolution } => {
+            let resolution = max_resolution.height();
+            let format_cmd =
+                format!("bv[height<={resolution}][vcodec^=avc1]+ba/best[height<={resolution}]");
             cmd.arg("-f")
-                .arg("bv[height<=1080][vcodec^=avc1]+ba/best[height<=1080]")
+                .arg(format_cmd)
                 .arg("--merge-output-format")
                 .arg("mp4");
         }
