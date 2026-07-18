@@ -13,14 +13,40 @@ use axum::extract::connect_info::ConnectInfo;
 
 use crate::{
     error::DownloadError,
-    video::{self, DownloadComplete, MediaType},
+    video::{self, DownloadComplete, MediaOptions},
 };
 
-#[derive(Deserialize)]
-struct ClientDownloadMessage {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MediaFormat {
+    Audio,
+    Video,
+}
+
+impl std::fmt::Display for MediaFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Audio => "Audio",
+            Self::Video => "Video",
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+enum VideoResolution {
+    /// 1080p
+    Fhd,
+    /// 1440p (2K)
+    Qhd,
+    /// 2160p (4K)
+    Uhd,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientStartDownloadMessage {
     client_id: uuid::Uuid,
     url: String,
-    media_type: MediaType,
+    media_format: MediaFormat,
+    video_resolution: Option<VideoResolution>,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,7 +55,7 @@ struct ServerVideoReadyMessage {
     client_id: uuid::Uuid,
     video_id: String,
     video_title: String,
-    media_type: MediaType,
+    media_format: MediaFormat,
     download_url: String,
 }
 
@@ -53,9 +79,44 @@ struct RequestFinishedMessage {
     success: bool,
 }
 
-enum DownloadEvent {
-    Video(DownloadComplete),
-    Done(Option<DownloadError>),
+#[derive(Debug)]
+pub enum ParseDownloadFormError {
+    MissingResolution,
+}
+
+impl From<VideoResolution> for video::VideoResolution {
+    fn from(value: VideoResolution) -> Self {
+        match value {
+            VideoResolution::Fhd => Self::Fhd,
+            VideoResolution::Qhd => Self::Qhd,
+            VideoResolution::Uhd => Self::Uhd,
+        }
+    }
+}
+
+impl From<MediaOptions> for MediaFormat {
+    fn from(value: MediaOptions) -> Self {
+        match value {
+            MediaOptions::Audio => Self::Audio,
+            MediaOptions::Video { .. } => Self::Video,
+        }
+    }
+}
+
+impl TryFrom<(MediaFormat, Option<VideoResolution>)> for MediaOptions {
+    type Error = ParseDownloadFormError;
+
+    fn try_from(value: (MediaFormat, Option<VideoResolution>)) -> Result<Self, Self::Error> {
+        let (media_format, video_resolution) = value;
+        match media_format {
+            MediaFormat::Audio => Ok(Self::Audio),
+            MediaFormat::Video => Ok(Self::Video {
+                max_resolution: video_resolution
+                    .ok_or(ParseDownloadFormError::MissingResolution)?
+                    .into(),
+            }),
+        }
+    }
 }
 
 /// The handler for the HTTP request (this gets called when the HTTP request lands at the start
@@ -94,38 +155,43 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         return;
     };
 
-    let cmd = match cmd {
-        Some(cmd) => cmd,
-        None => {
-            debug!("{who} sent an unknown command");
-            send_error(&mut socket, who, &ServerErrorMessage::bad_request()).await;
-            return;
-        }
+    let Some(cmd) = cmd else {
+        debug!("{who} sent an unknown command");
+        send_error(&mut socket, who, &ServerErrorMessage::bad_request()).await;
+        return;
     };
 
-    let ClientDownloadMessage {
+    let ClientStartDownloadMessage {
         client_id,
         url,
-        media_type,
+        media_format,
+        video_resolution,
     } = cmd;
     debug!("{who} = {} -> download {}", &client_id, &url);
 
-    let (tx, mut rx) = mpsc::channel::<DownloadEvent>(32);
+    let Ok(media_options) = MediaOptions::try_from((media_format, video_resolution)) else {
+        debug!("could not parse media options from server download message");
+        send_error(&mut socket, who, &ServerErrorMessage::bad_request()).await;
+        return;
+    };
+
+    let (tx, mut rx) = mpsc::channel::<ControlFlow<Option<DownloadError>, DownloadComplete>>(32);
 
     let sender_task = tokio::spawn(async move {
         while let Some(v) = rx.recv().await {
             match v {
-                DownloadEvent::Video(v) => {
+                ControlFlow::Continue(v) => {
+                    let media_format: MediaFormat = v.media_options.into();
                     let video_ready = ServerVideoReadyMessage {
                         message_type: "video_ready".to_string(),
                         client_id,
                         video_id: v.id.clone(),
                         video_title: v.title.clone(),
-                        media_type: v.media_type.clone(),
+                        media_format: media_format.clone(),
                         download_url: format!(
-                            "/api/download?id={}&media_type={}",
+                            "/api/download?id={}&media_format={}",
                             v.id.clone(),
-                            v.media_type.clone()
+                            media_format,
                         ),
                     };
                     debug!("video_ready message: {:?}", video_ready);
@@ -153,7 +219,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
                         return;
                     }
                 }
-                DownloadEvent::Done(download_error) => {
+                ControlFlow::Break(download_error) => {
                     // Tell client all videos are finished
                     let request_finished = RequestFinishedMessage {
                         message_type: "request_finished".to_string(),
@@ -187,11 +253,11 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         }
     });
 
-    let download_videos_task = video::download_videos(&url, media_type, |v| {
+    let download_videos_task = video::download_videos(&url, media_options, |v| {
         let tx = tx.clone();
 
         async move {
-            if let Err(e) = tx.send(DownloadEvent::Video(v.clone())).await {
+            if let Err(e) = tx.send(ControlFlow::Continue(v.clone())).await {
                 error!("tx error: {:?}", e)
             }
         }
@@ -204,7 +270,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     }
 
     // downloading videos is done. send done message in channel.
-    if let Err(e) = tx.send(DownloadEvent::Done(download_videos_task_err)).await {
+    if let Err(e) = tx.send(ControlFlow::Break(download_videos_task_err)).await {
         error!("error sending download done event to client: {:?}", e)
     }
 
@@ -254,12 +320,19 @@ where
 fn process_message(
     msg: Message,
     who: SocketAddr,
-) -> ControlFlow<(), Option<ClientDownloadMessage>> {
+) -> ControlFlow<(), Option<ClientStartDownloadMessage>> {
     match msg {
         Message::Text(t) => {
             debug!(">>> {who} sent str: {t:?}");
-            let cmd: Result<ClientDownloadMessage, serde_json::Error> = serde_json::from_str(&t);
-            ControlFlow::Continue(cmd.ok())
+            let cmd: Result<ClientStartDownloadMessage, serde_json::Error> =
+                serde_json::from_str(&t);
+            match cmd {
+                Ok(cmd) => ControlFlow::Continue(Some(cmd)),
+                Err(err) => {
+                    error!("error decoding message as ServerStartDownloadMessage: {t}: {err}");
+                    ControlFlow::Continue(None)
+                }
+            }
         }
         Message::Binary(d) => {
             debug!(">>> {who} sent {} bytes: {d:?}", d.len());

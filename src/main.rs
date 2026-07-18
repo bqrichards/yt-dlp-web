@@ -19,10 +19,11 @@ use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
 use crate::{
-    video::MediaType::{self},
-    ws::ws_handler,
+    delete_on_drop_stream::DeleteOnDropStream,
+    ws::{MediaFormat, ws_handler},
 };
 
+mod delete_on_drop_stream;
 mod error;
 mod video;
 mod ws;
@@ -70,7 +71,7 @@ async fn healthcheck() -> &'static str {
 #[derive(Serialize, Deserialize, Debug)]
 struct VideoObject {
     id: String,
-    media_type: MediaType,
+    media_format: MediaFormat,
 }
 
 static VIDEO_ID_RE: OnceLock<Regex> = OnceLock::new();
@@ -83,13 +84,13 @@ fn video_id_re() -> &'static Regex {
 async fn download_video(
     Query(payload): Query<VideoObject>,
 ) -> Result<Response<Body>, Response<Body>> {
-    let VideoObject { id, media_type } = payload;
+    let VideoObject { id, media_format } = payload;
     if !video_id_re().is_match(&id) {
         return Err((StatusCode::BAD_REQUEST, "invalid video id").into_response());
     }
-    let ext = match media_type {
-        MediaType::Audio => "mp3",
-        MediaType::Video => "mp4",
+    let ext = match media_format {
+        MediaFormat::Audio => "mp3",
+        MediaFormat::Video => "mp4",
     };
 
     let filename = format!("{}.{}", id, ext);
@@ -115,6 +116,7 @@ async fn download_video(
     let content_length = metadata.len();
 
     let stream = ReaderStream::new(file);
+    let stream = DeleteOnDropStream::new(stream, path.clone());
     let body = Body::from_stream(stream);
 
     let mut headers = HeaderMap::new();
