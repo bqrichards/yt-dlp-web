@@ -34,11 +34,11 @@ impl std::fmt::Display for MediaFormat {
 #[derive(Debug, Deserialize)]
 enum VideoResolution {
     /// 1080p
-    FHD,
+    Fhd,
     /// 1440p (2K)
-    QHD,
+    Qhd,
     /// 2160p (4K)
-    UHD,
+    Uhd,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,9 +87,9 @@ pub enum ParseDownloadFormError {
 impl From<VideoResolution> for video::VideoResolution {
     fn from(value: VideoResolution) -> Self {
         match value {
-            VideoResolution::FHD => Self::FHD,
-            VideoResolution::QHD => Self::QHD,
-            VideoResolution::UHD => Self::UHD,
+            VideoResolution::Fhd => Self::Fhd,
+            VideoResolution::Qhd => Self::Qhd,
+            VideoResolution::Uhd => Self::Uhd,
         }
     }
 }

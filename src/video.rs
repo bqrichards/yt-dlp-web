@@ -105,19 +105,19 @@ where
 #[derive(Debug, Clone, Copy)]
 pub enum VideoResolution {
     /// 1080p
-    FHD,
+    Fhd,
     /// 1440p (2K)
-    QHD,
+    Qhd,
     /// 2160p (4K)
-    UHD,
+    Uhd,
 }
 
 impl VideoResolution {
     pub fn height(&self) -> i32 {
         match self {
-            Self::FHD => 1080,
-            Self::QHD => 1440,
-            Self::UHD => 2160,
+            Self::Fhd => 1080,
+            Self::Qhd => 1440,
+            Self::Uhd => 2160,
         }
     }
 }
