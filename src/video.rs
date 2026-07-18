@@ -35,10 +35,7 @@ where
     /// Delimiter between video id and video title
     const DELIM: char = '\x1F';
     let mut cmd = Command::new("yt-dlp");
-    change_download(&media_options, &mut cmd);
-    // FIXME We now have a bug where if a video is downloaded with a certain max_resolution,
-    // changing that max resolution and downloading again will return the old video because
-    // the filename is only the id and title, does not include resolution.
+    change_download(&mut cmd, &media_options);
     cmd.arg("--newline")
         .arg("--print")
         .arg(format!("after_move:%(id)s{}%(title)s", DELIM))
@@ -65,8 +62,6 @@ where
         .await
         .map_err(DownloadError::CommandStdoutOutput)?
     {
-        // TODO the videos download in order of the titles so we know which video fails based on index.
-        // For now we will discard, but this could be mapped to an error for the client.
         if let Some((id, title)) = line.split_once(DELIM) {
             let decoded = DownloadComplete {
                 id: id.to_string(),
@@ -76,6 +71,8 @@ where
             debug!("Calling on_download_complete with decoded: {:?}", decoded);
             on_download_complete(decoded).await;
         } else {
+            // TODO the videos download in order of the titles so we know which video fails based on index.
+            // For now we will discard, but this could be mapped to an error for the client.
             error!("video download could not be decoded from line: {:?}", line);
         }
     }
@@ -131,8 +128,8 @@ pub enum MediaOptions {
     Video { max_resolution: VideoResolution },
 }
 
-fn change_download(download_options: &MediaOptions, cmd: &mut Command) {
-    match download_options {
+fn change_download(cmd: &mut Command, options: &MediaOptions) {
+    match options {
         MediaOptions::Audio => {
             cmd.arg("-t").arg("mp3");
         }

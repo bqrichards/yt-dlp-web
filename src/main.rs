@@ -18,8 +18,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
-use crate::ws::{MediaFormat, ws_handler};
+use crate::{
+    delete_on_drop_stream::DeleteOnDropStream,
+    ws::{MediaFormat, ws_handler},
+};
 
+mod delete_on_drop_stream;
 mod error;
 mod video;
 mod ws;
@@ -112,6 +116,7 @@ async fn download_video(
     let content_length = metadata.len();
 
     let stream = ReaderStream::new(file);
+    let stream = DeleteOnDropStream::new(stream, path.clone());
     let body = Body::from_stream(stream);
 
     let mut headers = HeaderMap::new();
