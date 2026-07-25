@@ -88,10 +88,7 @@ async fn download_video(
     if !video_id_re().is_match(&id) {
         return Err((StatusCode::BAD_REQUEST, "invalid video id").into_response());
     }
-    let ext = match media_format {
-        MediaFormat::Audio => "mp3",
-        MediaFormat::Video => "mp4",
-    };
+    let ext = media_format.ext();
 
     let filename = format!("{}.{}", id, ext);
     let mut path = env::temp_dir();
@@ -126,7 +123,7 @@ async fn download_video(
     );
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str("application/octet-stream").unwrap(),
+        HeaderValue::from_str(media_format.content_type()).unwrap(),
     );
     headers.insert(
         header::CONTENT_DISPOSITION,

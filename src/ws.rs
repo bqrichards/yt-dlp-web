@@ -22,6 +22,24 @@ pub enum MediaFormat {
     Video,
 }
 
+impl MediaFormat {
+    /// Extension of the file format. Does not include '.' prefix.
+    pub fn ext(&self) -> &str {
+        match self {
+            Self::Audio => "mp3",
+            Self::Video => "mp4",
+        }
+    }
+
+    /// MIME type of the format.
+    pub fn content_type(&self) -> &str {
+        match self {
+            Self::Audio => "audio/mpeg",
+            Self::Video => "video/mp4",
+        }
+    }
+}
+
 impl std::fmt::Display for MediaFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
