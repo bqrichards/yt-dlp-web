@@ -40,7 +40,7 @@ impl DownloadMediaCommand {
         &mut self.cmd
     }
 
-    pub fn read_line(line: &String, media_options: MediaOptions) -> Option<DownloadComplete> {
+    pub fn read_line(line: &str, media_options: MediaOptions) -> Option<DownloadComplete> {
         line.split_once(DownloadMediaCommand::DELIM)
             .map(|(id, title)| DownloadComplete {
                 id: id.to_string(),
