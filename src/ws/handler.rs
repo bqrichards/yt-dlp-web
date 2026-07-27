@@ -12,7 +12,7 @@ use axum::extract::connect_info::ConnectInfo;
 
 use crate::{
     error::DownloadError,
-    video::{self, DownloadComplete, MediaOptions},
+    media::{self, DownloadComplete, MediaOptions},
     ws::{
         ClientStartDownloadMessage, MediaFormat, RequestFinishedMessage, ServerErrorMessage,
         ServerVideoErrorMessage, ServerVideoReadyMessage, message::process_message, send_error,
@@ -153,7 +153,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         }
     });
 
-    let download_videos_task = video::download_videos(&url, media_options, |v| {
+    let download_videos_task = media::download_media(&url, media_options, |v| {
         let tx = tx.clone();
 
         async move {

@@ -78,7 +78,7 @@ pub async fn download_video_endpoint(
         HeaderValue::from_str("attachment").unwrap(),
     );
 
-    debug!("{:?}", headers);
+    debug!(headers = ?headers, "Headers");
 
     Ok((headers, body).into_response())
 }

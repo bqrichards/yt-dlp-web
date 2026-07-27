@@ -9,7 +9,7 @@ use tracing::{debug, error};
 
 use std::net::SocketAddr;
 
-use crate::video::{self, MediaOptions};
+use crate::media::{self, MediaOptions};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MediaFormat {
@@ -59,7 +59,7 @@ pub enum ParseDownloadFormError {
     MissingResolution,
 }
 
-impl From<VideoResolution> for video::VideoResolution {
+impl From<VideoResolution> for media::VideoResolution {
     fn from(value: VideoResolution) -> Self {
         match value {
             VideoResolution::Fhd => Self::Fhd,

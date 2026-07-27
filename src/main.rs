@@ -8,9 +8,9 @@ use crate::{port::Port, router::app_router};
 mod delete_on_drop_stream;
 mod endpoint;
 mod error;
+mod media;
 mod port;
 mod router;
-mod video;
 mod ws;
 
 #[tokio::main]
