@@ -2,7 +2,6 @@ use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
 };
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
@@ -14,128 +13,11 @@ use axum::extract::connect_info::ConnectInfo;
 use crate::{
     error::DownloadError,
     video::{self, DownloadComplete, MediaOptions},
+    ws::{
+        ClientStartDownloadMessage, MediaFormat, RequestFinishedMessage, ServerErrorMessage,
+        ServerVideoErrorMessage, ServerVideoReadyMessage, message::process_message, send_error,
+    },
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MediaFormat {
-    Audio,
-    Video,
-}
-
-impl MediaFormat {
-    /// Extension of the file format. Does not include '.' prefix.
-    pub fn ext(&self) -> &str {
-        match self {
-            Self::Audio => "mp3",
-            Self::Video => "mp4",
-        }
-    }
-
-    /// MIME type of the format.
-    pub fn content_type(&self) -> &str {
-        match self {
-            Self::Audio => "audio/mpeg",
-            Self::Video => "video/mp4",
-        }
-    }
-}
-
-impl std::fmt::Display for MediaFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Audio => "Audio",
-            Self::Video => "Video",
-        })
-    }
-}
-
-#[derive(Debug, Deserialize)]
-enum VideoResolution {
-    /// 1080p
-    Fhd,
-    /// 1440p (2K)
-    Qhd,
-    /// 2160p (4K)
-    Uhd,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClientStartDownloadMessage {
-    client_id: uuid::Uuid,
-    url: String,
-    media_format: MediaFormat,
-    video_resolution: Option<VideoResolution>,
-}
-
-#[derive(Debug, Serialize)]
-struct ServerVideoReadyMessage {
-    message_type: String,
-    client_id: uuid::Uuid,
-    video_id: String,
-    video_title: String,
-    media_format: MediaFormat,
-    download_url: String,
-}
-
-#[derive(Serialize)]
-struct ServerErrorMessage {
-    message_type: String,
-    error_message: String,
-}
-
-#[derive(Serialize)]
-struct ServerVideoErrorMessage {
-    message_type: String,
-    error_message: String,
-    video_id: String,
-}
-
-#[derive(Debug, Serialize)]
-struct RequestFinishedMessage {
-    message_type: String,
-    client_id: uuid::Uuid,
-    success: bool,
-}
-
-#[derive(Debug)]
-pub enum ParseDownloadFormError {
-    MissingResolution,
-}
-
-impl From<VideoResolution> for video::VideoResolution {
-    fn from(value: VideoResolution) -> Self {
-        match value {
-            VideoResolution::Fhd => Self::Fhd,
-            VideoResolution::Qhd => Self::Qhd,
-            VideoResolution::Uhd => Self::Uhd,
-        }
-    }
-}
-
-impl From<MediaOptions> for MediaFormat {
-    fn from(value: MediaOptions) -> Self {
-        match value {
-            MediaOptions::Audio => Self::Audio,
-            MediaOptions::Video { .. } => Self::Video,
-        }
-    }
-}
-
-impl TryFrom<(MediaFormat, Option<VideoResolution>)> for MediaOptions {
-    type Error = ParseDownloadFormError;
-
-    fn try_from(value: (MediaFormat, Option<VideoResolution>)) -> Result<Self, Self::Error> {
-        let (media_format, video_resolution) = value;
-        match media_format {
-            MediaFormat::Audio => Ok(Self::Audio),
-            MediaFormat::Video => Ok(Self::Video {
-                max_resolution: video_resolution
-                    .ok_or(ParseDownloadFormError::MissingResolution)?
-                    .into(),
-            }),
-        }
-    }
-}
 
 /// The handler for the HTTP request (this gets called when the HTTP request lands at the start
 /// of websocket negotiation). After this completes, the actual switching from HTTP to
@@ -294,90 +176,5 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
 
     if let Err(e) = sender_task.await {
         error!("sender_task join error: {:?}", e)
-    }
-}
-
-impl ServerErrorMessage {
-    fn bad_request() -> ServerErrorMessage {
-        Self {
-            message_type: "error".to_string(),
-            error_message: "Client sent bad request".to_string(),
-        }
-    }
-}
-
-impl From<ServerVideoReadyMessage> for ServerVideoErrorMessage {
-    fn from(value: ServerVideoReadyMessage) -> Self {
-        Self {
-            message_type: "error".to_string(),
-            error_message: "Internal Server Error".to_string(),
-            video_id: value.video_id,
-        }
-    }
-}
-
-async fn send_error<T>(socket: &mut WebSocket, who: SocketAddr, error: &T)
-where
-    T: ?Sized + Serialize,
-{
-    let message = match serde_json::to_string(error) {
-        Ok(message) => message,
-        Err(e) => {
-            error!("Error serializing error message: {e}");
-            return;
-        }
-    };
-
-    debug!("sending message through socket: {:?}", message);
-    if socket.send(Message::Text(message.into())).await.is_err() {
-        debug!("client {who} abruptly disconnected");
-    }
-}
-
-/// Parse message into request.
-fn process_message(
-    msg: Message,
-    who: SocketAddr,
-) -> ControlFlow<(), Option<ClientStartDownloadMessage>> {
-    match msg {
-        Message::Text(t) => {
-            debug!(">>> {who} sent str: {t:?}");
-            let cmd: Result<ClientStartDownloadMessage, serde_json::Error> =
-                serde_json::from_str(&t);
-            match cmd {
-                Ok(cmd) => ControlFlow::Continue(Some(cmd)),
-                Err(err) => {
-                    error!("error decoding message as ServerStartDownloadMessage: {t}: {err}");
-                    ControlFlow::Continue(None)
-                }
-            }
-        }
-        Message::Binary(d) => {
-            debug!(">>> {who} sent {} bytes: {d:?}", d.len());
-            ControlFlow::Continue(None)
-        }
-        Message::Close(c) => {
-            if let Some(cf) = c {
-                debug!(
-                    ">>> {who} sent close with code {} and reason `{}`",
-                    cf.code, cf.reason
-                );
-            } else {
-                debug!(">>> {who} somehow sent close message without CloseFrame");
-            }
-            ControlFlow::Break(())
-        }
-
-        Message::Pong(v) => {
-            debug!(">>> {who} sent pong with {v:?}");
-            ControlFlow::Continue(None)
-        }
-        // You should never need to manually handle Message::Ping, as axum's websocket library
-        // will do so for you automagically by replying with Pong and copying the v according to
-        // spec. But if you need the contents of the pings you can see them here.
-        Message::Ping(v) => {
-            debug!(">>> {who} sent ping with {v:?}");
-            ControlFlow::Continue(None)
-        }
     }
 }
